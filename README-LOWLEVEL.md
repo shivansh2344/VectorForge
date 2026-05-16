@@ -1,128 +1,341 @@
-# VectorForge Low-Level Architecture
+# README-LOWLEVEL.md
 
-This document explains the math, indexing tradeoffs, and retrieval pipeline behind VectorForge. It is the technical companion to [README.md](README.md) and focuses on how the system works under the hood.
+> **VectorForge Internal Architecture & Algorithmic Foundations**
+>
+> This document is the technical goldmine of **VectorForge** — the mathematics,
+> algorithms, heuristics, and engineering tradeoffs that power its semantic
+> vector search engine.
 
-## What this covers
+---
 
-- Embeddings and similarity metrics
-- Brute force, KD-tree, and HNSW indexing
-- Chunking strategy for document retrieval
-- Search and ranking flow
-- Evaluation, tuning, and future work
+# Table of Contents
 
-## Embeddings and similarity
+1. Introduction
+2. Embeddings: Semantics to Vectors
+3. Similarity Metrics
+4. Indexing Families and Tradeoffs
+5. HNSW Deep Dive
+6. Chunking and Document Retrieval
+7. Search Pipeline
+8. Evaluation Metrics
+9. Complexity Cheat Sheet
+10. Math Appendix
+11. Practical Tuning
+12. Future Work
+13. Code Pointers
 
-Text is mapped into a vector space so that similar meanings end up near each other.
+---
 
-If $\mathbf{x}$ is an embedding in $\mathbb{R}^d$, common similarity measures are:
+# 1. Introduction
 
-- Dot product: $\mathbf{x}\cdot\mathbf{y} = \sum_i x_i y_i$
-- Euclidean distance: $\|\mathbf{x}-\mathbf{y}\|_2$
-- Cosine similarity: $\cos(\theta)=\frac{\mathbf{x}\cdot\mathbf{y}}{\|\mathbf{x}\|_2\|\mathbf{y}\|_2}$
+VectorForge is a compact but production-style semantic search engine implemented
+in C++ with a browser-based interface.
 
-Normalization is often useful:
+It demonstrates how modern vector databases are built from first principles
+using:
+
+- Dense embeddings
+- Cosine similarity
+- Approximate Nearest Neighbor (ANN) search
+- Hierarchical Navigable Small World (HNSW) graphs
+- Embedded HTTP APIs
+- Interactive visualization
+
+---
+
+# 2. Embeddings: Semantics to Vectors
+
+A text document is transformed into a vector:
 
 $$
-\hat{\mathbf{x}} = \frac{\mathbf{x}}{\|\mathbf{x}\|_2}
+\mathbf{x} = [x_1, x_2, \ldots, x_d] \in \mathbb{R}^d
 $$
 
-For unit vectors, dot product and cosine similarity are equivalent, which simplifies retrieval logic.
+Where:
 
-## Indexing families
+- $d$ is the embedding dimension.
+- $x_i$ is the feature value along dimension $i$.
 
-| Index | Strengths | Tradeoffs |
-|---|---|---|
-| Brute force | Exact results, simple implementation | $O(n\cdot d)$ per query |
-| KD-tree | Good for low-dimensional data | Degrades in high dimensions |
-| HNSW | Fast approximate nearest neighbors with high recall | More complex and memory-heavy |
+Semantically similar texts occupy nearby locations in this high-dimensional
+space.
 
-### HNSW in practice
+---
 
-HNSW organizes vectors into multiple layers. Higher layers are sparse and help with long-range navigation; lower layers are denser and refine the final answer.
+# 3. Similarity Metrics
 
-Key parameters:
+## Dot Product
 
-- `M`: maximum neighbors per node
-- `efConstruction`: candidate pool during insertion
-- `ef`: candidate pool during query time
+$$
+\mathbf{x}\cdot\mathbf{y}
+=
+\sum_{i=1}^{d} x_i y_i
+$$
 
-The usual search pattern is:
+## Euclidean Distance
 
-1. Start from the top layer entry point.
-2. Greedily move toward promising neighbors.
-3. Descend layer by layer.
-4. Use the bottom layer for final top-k selection.
+$$
+\|
+\mathbf{x}-\mathbf{y}
+\|_2
+=
+\sqrt{\sum_{i=1}^{d}(x_i-y_i)^2}
+$$
 
-## Chunking and retrieval
+## Cosine Similarity
 
-Long documents are split into smaller chunks so one embedding does not mix unrelated ideas.
+$$
+\cos(\theta)
+=
+\frac{\mathbf{x}\cdot\mathbf{y}}
+{\|\mathbf{x}\|_2\|\mathbf{y}\|_2}
+$$
 
-Each chunk stores:
+## Normalization
+
+$$
+\hat{\mathbf{x}}
+=
+\frac{\mathbf{x}}{\|\mathbf{x}\|_2}
+$$
+
+For normalized vectors:
+
+$$
+\hat{\mathbf{x}}\cdot\hat{\mathbf{y}}
+=
+\cos(\theta)
+$$
+
+---
+
+# 4. Indexing Families and Tradeoffs
+
+## Brute Force
+
+- Query complexity: $O(n \cdot d)$
+- Exact results
+- Best for small datasets and validation
+
+## KD-Tree
+
+- Works well for low-dimensional data
+- Average query complexity: $O(\log n)$
+- Suffers from the curse of dimensionality
+
+## HNSW
+
+- State-of-the-art approximate nearest neighbor algorithm
+- High recall with sublinear search time
+- Excellent scalability to millions of vectors
+
+---
+
+# 5. HNSW Deep Dive
+
+HNSW (Hierarchical Navigable Small World) organizes vectors into multiple graph
+layers.
+
+Higher layers are sparse and enable long-range jumps.
+
+Lower layers are dense and refine local neighborhoods.
+
+## Layer Assignment
+
+$$
+L
+=
+\left\lfloor -\ln(U)m_L \right\rfloor
+$$
+
+Where:
+
+- $U \sim \mathrm{Uniform}(0,1)$
+- $m_L$ is the level multiplier
+
+Probability of reaching level $l$:
+
+$$
+P(L \ge l)
+=
+e^{-l/m_L}
+$$
+
+## Key Parameters
+
+| Parameter | Meaning |
+|---------:|---------|
+| `M` | Maximum neighbors per node |
+| `efConstruction` | Candidate pool during insertion |
+| `ef` | Candidate pool during search |
+
+## Sparse-to-Dense Routing
+
+```text
+                 ┌──────────── Layer 4 ────────────┐
+                 │        Global Entry Node        │
+                 └─────────────────┬───────────────┘
+                                   │
+                                   ▼
+             ┌──────── Layer 3 (Very Sparse) ────────┐
+             │      Long-distance navigation         │
+             └─────────────────┬─────────────────────┘
+                               │
+                               ▼
+             ┌──────── Layer 2 (Sparse) ─────────────┐
+             │       Regional routing stage          │
+             └─────────────────┬─────────────────────┘
+                               │
+                               ▼
+             ┌────── Layer 1 (Refinement) ───────────┐
+             │      Neighborhood exploration         │
+             └─────────────────┬─────────────────────┘
+                               │
+                               ▼
+┌──────────────────── Layer 0 (Dense Full Graph) ────────────────────┐
+│ All vectors present; best-first search computes final top-k result. │
+└─────────────────────────────────────────────────────────────────────┘
+
+Path:
+Entry → Coarse Jump → Regional Routing → Local Refinement → Top-k
+```
+
+---
+
+# 6. Chunking and Document Retrieval
+
+Large documents are split into smaller chunks.
+
+Each chunk receives an embedding:
+
+$$
+\mathbf{x}_{\text{chunk}}
+$$
+
+Metadata stored with each chunk includes:
 
 - Document ID
 - Chunk index
 - Character or token offsets
 
-This lets VectorForge retrieve precise passages instead of returning an entire document.
+This enables fine-grained retrieval for RAG systems.
 
-## Search pipeline
+---
 
-1. Convert the query into an embedding.
-2. Search the index for the nearest chunk vectors.
-3. Optionally re-rank the candidates.
-4. Return the best passages to the user or language model.
+# 7. Search Pipeline
 
-## Evaluation metrics
+1. Convert query text into embedding $\mathbf{q}$.
+2. Search HNSW for top-$k$ nearest chunk vectors.
+3. Optionally re-rank candidates.
+4. Return relevant chunks to the user or language model.
 
-- Recall@k: how many relevant items appear in the top-k list
-- MRR: how early the first relevant item appears
-- Latency: especially P95 and P99 response times
-- Throughput: queries processed per second
+---
 
-## Complexity cheat sheet
+# 8. Evaluation Metrics
 
-| Operation | Brute force | KD-tree | HNSW |
-|---|---:|---:|---:|
-| Build | $O(1)$ insert | $O(n\log n)$ | Approximately $O(n\cdot efConstruction\cdot\log n)$ |
-| Query | $O(n\cdot d)$ | Roughly $O(\log n)$ in low dimensions | Approximately $O(ef\cdot\log n)$ |
-| Memory | Low | Medium | Higher |
+## Recall@k
 
-## Math appendix
+Fraction of relevant items retrieved in top-$k$.
 
-For unit vectors, cosine similarity and Euclidean distance are tightly related:
+## MRR
+
+Mean Reciprocal Rank of the first relevant result.
+
+## Latency
+
+P95 and P99 response times.
+
+## Throughput
+
+Queries processed per second.
+
+---
+
+# 9. Complexity Cheat Sheet
+
+## Build Complexity
+
+- Brute Force: $O(1)$ append
+- KD-Tree: $O(n \log n)$
+- HNSW: approximately $O(n \cdot efConstruction \cdot \log n)$
+
+## Query Complexity
+
+- Brute Force: $O(n \cdot d)$
+- KD-Tree: $O(\log n)$ for low dimensions
+- HNSW: approximately $O(ef \cdot \log n)$
+
+## Memory Complexity
 
 $$
-\|\hat{\mathbf{x}}-\hat{\mathbf{y}}\|_2^2 = 2 - 2\cos(\theta)
+O(n(d + M))
 $$
 
-That is why normalized embeddings let you use simpler scoring logic without changing the ranking.
+---
 
-## Practical tuning
+# 10. Math Appendix
+
+For normalized vectors:
+
+$$
+\|\hat{\mathbf{x}}-\hat{\mathbf{y}}\|_2^2
+=
+2 - 2\cos(\theta)
+$$
+
+Thus, sorting by cosine similarity is equivalent to sorting by Euclidean
+distance when vectors are normalized.
+
+---
+
+# 11. Practical Tuning
 
 - Increase `efConstruction` to improve index quality.
-- Increase `M` to improve connectivity and recall.
-- Increase query-time `ef` to improve recall at the cost of latency.
-- Normalize embeddings when you want cosine and dot product to behave consistently.
+- Increase `M` to improve graph connectivity.
+- Increase query-time `ef` to improve recall.
+- Normalize embeddings to simplify metric calculations.
 
-## Future work
+---
 
-- Product quantization and optimized product quantization
-- FP16 or INT8 embeddings
+# 12. Future Work
+
+## Performance and Scale
+
+- Product Quantization (PQ)
+- Optimized PQ (OPQ)
+- FP16 and INT8 embeddings
+- GPU acceleration
+
+## Ranking
+
 - Cross-encoder re-ranking
-- Persistent serialization and incremental updates
-- Sharding and replication for larger workloads
+- Learning-to-rank
 
-## Code pointers
+## Reliability
+
+- Persistent serialization
+- Incremental updates
+- Sharding and replication
+
+---
+
+# 13. Code Pointers
 
 | File | Responsibility |
-|---|---|
+|------|----------------|
 | `main.cpp` | Vector math, HNSW indexing, REST endpoints |
 | `index.html` | Browser UI and API integration |
 | `httplib.h` | Embedded HTTP server implementation |
 
-## References
+---
 
-- Malkov, Yu. A., and Yashunin, D. (2018). Efficient and robust approximate nearest neighbor search using Hierarchical Navigable Small World graphs.
-- Johnson, J., Douze, M., and Jegou, H. (2019). Billion-scale similarity search with GPUs.
-- FAISS, Hnswlib, and Annoy documentation.
+# Final Thoughts
 
+VectorForge demonstrates how a few elegant mathematical ideas—embeddings,
+cosine similarity, and graph navigation—combine to form a powerful semantic
+search engine.
+
+This project is both:
+
+- A production-style engineering system
+- A hands-on educational exploration of vector databases
+- A strong showcase project for systems, search, and AI engineering
