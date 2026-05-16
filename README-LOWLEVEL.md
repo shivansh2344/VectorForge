@@ -66,44 +66,31 @@ space.
 ## Dot Product
 
 $$
-\mathbf{x}\cdot\mathbf{y}
-=
-\sum_{i=1}^{d} x_i y_i
+\mathbf{x}\cdot\mathbf{y} = \sum_{i=1}^{d} x_i y_i
 $$
 
 ## Euclidean Distance
 
 $$
-\|
-\mathbf{x}-\mathbf{y}
-\|_2
-=
-\sqrt{\sum_{i=1}^{d}(x_i-y_i)^2}
+\|\mathbf{x}-\mathbf{y}\|_2 = \sqrt{\sum_{i=1}^{d}(x_i-y_i)^2}
 $$
 
 ## Cosine Similarity
 
 $$
-\cos(\theta)
-=
-\frac{\mathbf{x}\cdot\mathbf{y}}
-{\|\mathbf{x}\|_2\|\mathbf{y}\|_2}
+\cos(\theta) = \frac{\mathbf{x}\cdot\mathbf{y}}{\|\mathbf{x}\|_2\|\mathbf{y}\|_2}
 $$
 
 ## Normalization
 
 $$
-\hat{\mathbf{x}}
-=
-\frac{\mathbf{x}}{\|\mathbf{x}\|_2}
+\hat{\mathbf{x}} = \frac{\mathbf{x}}{\|\mathbf{x}\|_2}
 $$
 
 For normalized vectors:
 
 $$
-\hat{\mathbf{x}}\cdot\hat{\mathbf{y}}
-=
-\cos(\theta)
+\hat{\mathbf{x}}\cdot\hat{\mathbf{y}} = \cos(\theta)
 $$
 
 ---
@@ -142,9 +129,7 @@ Lower layers are dense and refine local neighborhoods.
 ## Layer Assignment
 
 $$
-L
-=
-\left\lfloor -\ln(U)m_L \right\rfloor
+L = \left\lfloor -\ln(U)m_L \right\rfloor
 $$
 
 Where:
@@ -155,9 +140,7 @@ Where:
 Probability of reaching level $l$:
 
 $$
-P(L \ge l)
-=
-e^{-l/m_L}
+P(L \ge l) = e^{-l/m_L}
 $$
 
 ## Key Parameters
@@ -277,9 +260,7 @@ $$
 For normalized vectors:
 
 $$
-\|\hat{\mathbf{x}}-\hat{\mathbf{y}}\|_2^2
-=
-2 - 2\cos(\theta)
+\|\hat{\mathbf{x}}-\hat{\mathbf{y}}\|_2^2 = 2 - 2\cos(\theta)
 $$
 
 Thus, sorting by cosine similarity is equivalent to sorting by Euclidean
